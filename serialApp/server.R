@@ -10,7 +10,8 @@ shinyServer(function(input, output) {
     
     ttip <- function(x) {
         if (!is.null(x$min)) {
-            with(calls[x$id, ], paste(min, "min", sec, "sec, tower", Name))
+            with(calls[x$id, ], paste(format(time, "%H:%M"), "-", min, "min", sec,
+                                      "sec, tower", Name))
         }
     }
     

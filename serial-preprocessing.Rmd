@@ -1,0 +1,72 @@
+---
+title: "Serial preprocessing"
+author: "David Robinson"
+date: "December 22, 2014"
+output: html_document
+---
+
+```{r, echo = FALSE}
+library(knitr)
+opts_chunk$set(cache = TRUE, warning = FALSE, message = FALSE, results = 'hide')
+```
+
+```{r import_data}
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(lubridate)
+
+map_data <- read.csv("input_data/serial_podcast_data/serial_map_data.csv")
+phone_data <- read.csv("input_data/serial_podcast_data/serial_phone_data.csv")
+
+# transform x and y to longitude and latitude
+# using transformations created by comparing to real locations
+map_data <- map_data %>%
+    mutate(long = -76.8854 + 0.00017022 * x,
+           lat  = 39.23822 + 1.371014e-04 * y) %>%
+    filter(Name != "Owings Mills Mall")  # too far away
+
+# separate places of interest, as opposed to calls
+POI <- map_data %>% filter(Type == "base-location") %>%
+    mutate(location_id = seq_len(n()))
+
+# process calls data:
+# 1. combine with map data
+# 2. remove unused columns
+# 3. process time and duration into usable formats
+# 4. filter for Friday 1/13/1999 (as opposed to previous night)
+calls <- phone_data %>%
+    mutate(Name = str_sub(Cell_Site, 1, -2)) %>% inner_join(map_data) %>%
+    select(-x, -y, -Description, -Type) %>%
+    rename(Called = Person_Called) %>%
+    mutate(time = parse_date_time(Call_Time, "%d/%m/%y %H:%M")) %>%
+    separate(Duration, c("min", "sec"), convert = TRUE, remove = FALSE) %>%
+    mutate(minutes = min + sec / 60) %>%
+    mutate(id = seq_len(n())) %>%
+    filter(day(time) == 13 & hour(time) > 10) %>%
+    droplevels()  # drop levels that were filtered out
+
+# dates are off by a century (2099), and correct timezone
+year(calls$time) <- 1999
+tz(calls$time) <- "EST"
+```
+
+```{r import_maps}
+library(broom)
+library(rgdal)
+
+read_shp <- function(name) {
+     readOGR(dsn=paste0("input_data/", name, "/", name, ".shp"), layer=name) %>%
+         spTransform(CRS("+proj=longlat +datum=WGS84")) %>%
+         tidy
+}
+
+combined_map <- data_frame(name = c("bacizc12", "bacozc12"),
+                           type = c("county", "city")) %>%
+    group_by(type) %>%
+    do(read_shp(.$name))
+```
+
+```{r save_processed, dependson = c("import_data", "import_maps")}
+save(combined_map, calls, POI, file = "serialApp/serial_data.rda")
+```
